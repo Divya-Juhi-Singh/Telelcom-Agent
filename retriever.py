@@ -9,15 +9,20 @@ from langchain_huggingface import HuggingFaceEmbeddings
 from langchain_core.runnables import RunnableLambda
 from langchain_core.documents import Document
 
-CHROMA_DIR  = "chroma_store"
+CHROMA_DIR = "chroma_store"
 EMBED_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
+
+# Chroma returns distances: lower = more similar.
+MAX_DISTANCE = 0.8
 
 
 def build_retriever(
     k_faq: int = 3,
     k_tickets: int = 3,
     k_guides: int = 3,
+    max_distance: float = MAX_DISTANCE,
 ) -> RunnableLambda:
+
     embeddings = HuggingFaceEmbeddings(model_name=EMBED_MODEL)
 
     faq_store = Chroma(
@@ -25,36 +30,51 @@ def build_retriever(
         embedding_function=embeddings,
         persist_directory=CHROMA_DIR,
     )
+
     tickets_store = Chroma(
         collection_name="tickets",
         embedding_function=embeddings,
         persist_directory=CHROMA_DIR,
     )
+
     guides_store = Chroma(
         collection_name="guides",
         embedding_function=embeddings,
         persist_directory=CHROMA_DIR,
     )
 
-    faq_retriever     = faq_store.as_retriever(search_kwargs={"k": k_faq})
-    tickets_retriever = tickets_store.as_retriever(search_kwargs={"k": k_tickets})
-    guides_retriever  = guides_store.as_retriever(search_kwargs={"k": k_guides})
-
     def retrieve(query: str) -> list[Document]:
-        faq_docs = faq_retriever.invoke(query)
-        ticket_docs = tickets_retriever.invoke(query)
-        guide_docs = guides_retriever.invoke(query)
 
-        # Attach source type to each document
-        for doc in faq_docs:
-            doc.metadata["source_type"] = "FAQ"
+        collections = [
+            (faq_store, k_faq, "FAQ"),
+            (tickets_store, k_tickets, "TICKET"),
+            (guides_store, k_guides, "GUIDE"),
+        ]
 
-        for doc in ticket_docs:
-            doc.metadata["source_type"] = "TICKET"
+        filtered_docs = []
 
-        for doc in guide_docs:
-            doc.metadata["source_type"] = "GUIDE"
+        for store, k, source_type in collections:
 
-        return faq_docs + ticket_docs + guide_docs
+            results = store.similarity_search_with_score(
+                query,
+                k=k,
+            )
+
+            for doc, distance in results:
+
+                print(
+                    f"{source_type} | Distance: {distance:.4f}"
+                )
+
+                if distance <= max_distance:
+
+                    doc.metadata["source_type"] = source_type
+                    doc.metadata["similarity_distance"] = float(distance)
+
+                    filtered_docs.append(doc)
+
+        print(f"\nRetrieved documents after filtering: {len(filtered_docs)}")
+
+        return filtered_docs
 
     return RunnableLambda(retrieve)

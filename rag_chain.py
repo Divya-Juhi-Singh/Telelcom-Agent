@@ -4,7 +4,8 @@ Builds the RAG chain:
 """
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
-from langchain_core.runnables import RunnablePassthrough
+# from langchain_core.runnables import RunnablePassthrough
+from langchain_core.runnables import RunnableLambda
 from langchain_core.documents import Document
 from langchain_groq import ChatGroq
 
@@ -31,7 +32,7 @@ CITATION RULES:
 9. If a source does not contain a usable identifier, do not invent one.
 10. If the context is insufficient, clearly say so and suggest calling 611
     or using the MyTelecom app.
-    
+
 Example answer:
 To reset your network settings, open Settings → General → Transfer or Reset
 → Reset → Reset Network Settings [FAQ: Network Troubleshooting].
@@ -43,6 +44,11 @@ Context:
 {context}
 """
 
+FALLBACK_RESPONSE = (
+    "I'm sorry, but I couldn't find relevant information "
+    "to answer your question confidently. "
+    "Please call 611 or use the MyTelecom app for assistance."
+)
 
 def _format_docs(docs: list[Document]) -> str:
     sections = []
@@ -80,7 +86,33 @@ def _format_docs(docs: list[Document]) -> str:
         )
 
     return "\n\n---\n\n".join(sections)
+# def build_chain():
+#     retriever = build_retriever()
+
+#     prompt = ChatPromptTemplate.from_messages([
+#         ("system", SYSTEM_PROMPT),
+#         ("human", "{question}"),
+#     ])
+
+#     llm = ChatGroq(
+#         model="openai/gpt-oss-20b",
+#         temperature=0,
+#         max_tokens=None,
+#         reasoning_format="parsed",
+#         timeout=None,
+#         max_retries=2,
+#     )
+
+#     chain = (
+#         {"context": retriever | _format_docs, "question": RunnablePassthrough()}
+#         | prompt
+#         | llm
+#         | StrOutputParser()
+#     )
+#     return chain
+
 def build_chain():
+
     retriever = build_retriever()
 
     prompt = ChatPromptTemplate.from_messages([
@@ -97,10 +129,32 @@ def build_chain():
         max_retries=2,
     )
 
-    chain = (
-        {"context": retriever | _format_docs, "question": RunnablePassthrough()}
-        | prompt
-        | llm
-        | StrOutputParser()
-    )
-    return chain
+    output_parser = StrOutputParser()
+
+    def run_rag(question: str) -> str:
+
+        # Step 1: Retrieve relevant documents
+        docs = retriever.invoke(question)
+
+        # Step 2: Check whether any relevant documents exist
+        if not docs:
+            print("No relevant documents found. Skipping LLM.")
+
+            return FALLBACK_RESPONSE
+
+        # Step 3: Format retrieved documents
+        context = _format_docs(docs)
+
+        # Step 4: Prepare prompt
+        messages = prompt.invoke({
+            "context": context,
+            "question": question,
+        })
+
+        # Step 5: Call LLM only when relevant context exists
+        response = llm.invoke(messages)
+
+        # Step 6: Parse response
+        return output_parser.invoke(response)
+
+    return RunnableLambda(run_rag)
