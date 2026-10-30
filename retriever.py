@@ -41,10 +41,20 @@ def build_retriever(
     guides_retriever  = guides_store.as_retriever(search_kwargs={"k": k_guides})
 
     def retrieve(query: str) -> list[Document]:
-        return (
-            faq_retriever.invoke(query)
-            + tickets_retriever.invoke(query)
-            + guides_retriever.invoke(query)
-        )
+        faq_docs = faq_retriever.invoke(query)
+        ticket_docs = tickets_retriever.invoke(query)
+        guide_docs = guides_retriever.invoke(query)
+
+        # Attach source type to each document
+        for doc in faq_docs:
+            doc.metadata["source_type"] = "FAQ"
+
+        for doc in ticket_docs:
+            doc.metadata["source_type"] = "TICKET"
+
+        for doc in guide_docs:
+            doc.metadata["source_type"] = "GUIDE"
+
+        return faq_docs + ticket_docs + guide_docs
 
     return RunnableLambda(retrieve)
