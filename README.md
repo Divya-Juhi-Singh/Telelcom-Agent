@@ -55,9 +55,9 @@ rag-telecom-chatbot/
 **1. Clone and install dependencies**
 
 ```bash
-git clone <repo-url>
-cd rag-telecom-chatbot
-uv sync          # or: pip install -e .
+git clone <git@github.com:Divya-Juhi-Singh/Telelcom-Agent.git>
+cd Telecom-Agent
+python -m pip install -r requirements.txt
 ```
 
 **2. Configure environment variables**
